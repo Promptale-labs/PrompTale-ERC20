@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./TaleVestingWallet.sol";
+import "./ITaleVestingWallet.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract TaleVestingWalletFactory is Ownable(msg.sender) {
@@ -51,5 +52,23 @@ contract TaleVestingWalletFactory is Ownable(msg.sender) {
 
     function getWalletsByBeneficiary(address _beneficiary) external view returns (address[] memory) {
         return beneficiaryWallets[_beneficiary];
+    }
+
+    function getVestingScheduleFor(address wallet)
+        external
+        view
+        returns (
+            address _beneficiary,
+            uint256 _start,
+            uint256 _interval,
+            uint256 _releasesMonths,
+            uint256 _totalAmount,
+            uint256 _releasedTimes,
+            uint256 _releasedAmount,
+            uint256 _releasableAmount
+        )
+    {
+        require(wallet != address(0), "Invalid wallet address");
+        return ITaleVestingWallet(wallet).getVestingSchedule();
     }
 }
