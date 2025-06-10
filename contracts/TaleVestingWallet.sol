@@ -1,150 +1,132 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract TaleVestingWallet is Ownable(msg.sender) {
+/**
+ * @title TaleVestingWallet
+ * @notice Handles token vesting over fixed intervals.
+ */
+contract TaleVestingWallet is Ownable {
     using SafeERC20 for IERC20;
-    IERC20 public immutable token;
 
+    IERC20 public immutable token;
     address public beneficiary;
-    uint256 public constant INTERVAL = 30 days;
+
+    uint256 public immutable interval;
     uint256 public startTimestamp;
     uint256 public totalAmount;
-    uint256 public releaseMonths = 1;
-    uint256 public releasedAmount = 0;
-    uint256 public releasedTimes = 0;
+    uint256 public releaseMonths;
+
+    uint256 private _releasedAmount;
+    uint256 private _releasedTimes;
 
     event TokensReleased(address indexed beneficiary, uint256 amount);
     event VestingProgress(uint256 releasedTimes, uint256 totalReleased, uint256 releasable);
-    event VestingUpdateUint(string attrubute, uint256 newValue);
-    event VestingUpdateAddress(string attrubute, address newValue);
     event Withdraw(address indexed to, uint256 amount);
-    
+
     /**
-     * @dev Set the ERC20 token address.
+     * @notice Initializes the vesting wallet.
      */
     constructor(
         address _token,
         address _beneficiary,
         uint256 _startTimestamp,
+        uint256 _interval,
         uint256 _releaseMonths,
         uint256 _totalAmount
-    ) {
-        require(_token != address(0), "Invalid token");
-        require(_beneficiary != address(0), "Invalid beneficiary");
-        require(_releaseMonths > 0, "ReleaseMonths is smaller than 0");
-        
+    ) Ownable(msg.sender) {
+        require(_token != address(0), "TaleVestingWallet: token address is zero");
+        require(_beneficiary != address(0), "TaleVestingWallet: beneficiary address is zero");
+        require(_interval > 0, "TaleVestingWallet: interval must be > 0");
+        require(_releaseMonths > 0, "TaleVestingWallet: releaseMonths must be > 0");
+        require(_totalAmount >= 1000000000000000000, "TaleVestingWallet: Amount too small");
+
         token = IERC20(_token);
         beneficiary = _beneficiary;
         startTimestamp = _startTimestamp;
+        interval = _interval;
         releaseMonths = _releaseMonths;
         totalAmount = _totalAmount;
     }
 
     /**
-     * @dev Release the tokens.
-     *
-     * Emits a {TokensReleased} event.
+     * @notice Releases releasable tokens to the beneficiary.
      */
-    function release() public virtual {
-        require(msg.sender == beneficiary || msg.sender == owner(), "Only beneficiary");
-        require(startTimestamp < block.timestamp, "Still locked");
+    function release() external {
+        require(msg.sender == beneficiary, "TaleVestingWallet: unauthorized");
+        require(block.timestamp >= startTimestamp, "TaleVestingWallet: vesting not started");
 
-        uint256 calculationAmount = releasableAmount(block.timestamp);
-        
-        require(calculationAmount > 0, "Insufficient release amount.");
+        uint256 releasable = releasableAmount(block.timestamp);
+        require(releasable > 0, "TaleVestingWallet: no tokens to release");
 
-        token.safeTransfer(beneficiary, calculationAmount);
+        _releasedAmount += releasable;
+        _releasedTimes = (block.timestamp - startTimestamp) / interval;
+        if (_releasedTimes > releaseMonths) _releasedTimes = releaseMonths;
 
-        releasedAmount += calculationAmount;
-        releasedTimes = releasableMonth(block.timestamp);
+        token.safeTransfer(beneficiary, releasable);
 
-        emit TokensReleased(beneficiary, calculationAmount);
-        emit VestingProgress(releasedTimes, releasedAmount, calculationAmount);
+        emit TokensReleased(beneficiary, releasable);
+        emit VestingProgress(_releasedTimes, _releasedAmount, releasable);
     }
 
     /**
-     * @dev Virtual implementation of the vesting formula. This returns the amount vested, as a function of time, for
-     * an asset given its total historical allocation.
+     * @notice Calculates releasable token amount.
      */
     function releasableAmount(uint256 currentTime) public view returns (uint256) {
         if (currentTime < startTimestamp) return 0;
 
-        uint256 elapsedMonths = releasableMonth(currentTime);
+        uint256 elapsed = (currentTime - startTimestamp) / interval;
+        if (elapsed > releaseMonths) elapsed = releaseMonths;
 
-        uint256 vestedAmount = (totalAmount * elapsedMonths) / releaseMonths;
-
-        return vestedAmount > releasedAmount ? vestedAmount - releasedAmount : 0;
-    }
-
-    function releasableMonth(uint256 currentTime) public view returns (uint256) {
-        if (currentTime < startTimestamp) return 0;
-
-        uint256 elapsedMonths = (currentTime - startTimestamp) / INTERVAL;
-        if (elapsedMonths > releaseMonths) elapsedMonths = releaseMonths;
-
-        return elapsedMonths;
+        uint256 vested = (totalAmount * elapsed) / releaseMonths;
+        return vested > _releasedAmount ? vested - _releasedAmount : 0;
     }
 
     /**
-     * @dev Getter for the VestingInfo.
+     * @notice Returns full vesting info for the wallet.
+     * @return resultBeneficiary Address of the beneficiary
+     * @return resultStart Timestamp when vesting starts
+     * @return resultInterval Interval between releases
+     * @return resultReleaseMonths Total number of vesting intervals
+     * @return resultTotalAmount Total amount to be vested
+     * @return resultReleasedTimes Number of completed releases
+     * @return resultReleasedAmount Total amount released so far
+     * @return resultReleasableAmount Amount currently releasable
      */
-    function getVestingSchedule()
-        external
-        view
-        returns (
-            address _beneficiary,
-            uint256 _start,
-            uint256 _interval,
-            uint256 _releasesMonths,
-            uint256 _totalAmount,
-            uint256 _releasedTimes,
-            uint256 _releasedAmount,
-            uint256 _releasableAmount
-        )
-    {
-        uint256 currentTime = block.timestamp;
+    function getVestingSchedule() external view returns (
+        address resultBeneficiary,
+        uint256 resultStart,
+        uint256 resultInterval,
+        uint256 resultReleaseMonths,
+        uint256 resultTotalAmount,
+        uint256 resultReleasedTimes,
+        uint256 resultReleasedAmount,
+        uint256 resultReleasableAmount
+    ) {
         return (
             beneficiary,
             startTimestamp,
-            INTERVAL,
+            interval,
             releaseMonths,
             totalAmount,
-            releasedTimes,
-            releasedAmount,
-            releasableAmount(currentTime)
+            _releasedTimes,
+            _releasedAmount,
+            releasableAmount(block.timestamp)
         );
     }
 
     /**
-     * @dev Setter for the VestingInfo.
+     * @notice Emergency withdrawal of all tokens to owner-specified address.
      */
-    function setVestingAmount (uint256 _value) external onlyOwner {
-        totalAmount = _value;
-        emit VestingUpdateUint("totalAmount", _value );
-    }
-    function setVestingStartTime (uint256 _value) external onlyOwner {
-        startTimestamp = _value;
-        emit VestingUpdateUint("startTime", _value );
-    }
-    function setVestingDuration(uint256 _value) external onlyOwner {
-        require(_value > 0, "ReleaseMonths is smaller than 0");
-        releaseMonths = _value;
-        emit VestingUpdateUint("releaseMonths", _value );
-    }
-    function setVestingBeneficiary(address _value) external onlyOwner {
-        require(_value != address(0), "Invalid beneficiary");
-        beneficiary = _value;
-        emit VestingUpdateAddress("beneficiary", _value );
-    }
-
     function emergencyWithdraw(address to) external onlyOwner {
-        require(to != address(0), "Invalid address");
+        require(to != address(0), "TaleVestingWallet: withdraw to zero address");
+        
         uint256 balance = token.balanceOf(address(this));
-        require(token.transfer(to, balance), "Withdraw failed");
+        require(balance > 0, "TaleVestingWallet: no tokens to withdraw");
+
+        token.safeTransfer(to, balance);
         emit Withdraw(to, balance);
     }
-
 }
