@@ -58,11 +58,12 @@ contract TaleVestingWallet is Ownable {
         require(msg.sender == beneficiary, "TaleVestingWallet: unauthorized");
         require(block.timestamp >= startTimestamp, "TaleVestingWallet: vesting not started");
 
-        uint256 releasable = releasableAmount(block.timestamp);
+        uint256 currentTime = block.timestamp;
+        uint256 releasable = releasableAmount(currentTime);
         require(releasable > 0, "TaleVestingWallet: no tokens to release");
 
         _releasedAmount += releasable;
-        _releasedTimes = (block.timestamp - startTimestamp) / interval;
+        _releasedTimes = (currentTime - startTimestamp) / interval;
         if (_releasedTimes > releaseMonths) _releasedTimes = releaseMonths;
 
         token.safeTransfer(beneficiary, releasable);
@@ -122,7 +123,7 @@ contract TaleVestingWallet is Ownable {
      */
     function emergencyWithdraw(address to) external onlyOwner {
         require(to != address(0), "TaleVestingWallet: withdraw to zero address");
-        
+
         uint256 balance = token.balanceOf(address(this));
         require(balance > 0, "TaleVestingWallet: no tokens to withdraw");
 
