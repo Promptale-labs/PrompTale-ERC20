@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @title TaleVestingWalletFactory
  * @notice Deploys and manages TaleVestingWallet contracts for multiple beneficiaries.
  */
-contract TaleVestingWalletFactory is Ownable(msg.sender) {
+contract TaleVestingWalletFactory is Ownable {
     /// @notice ERC20 token address used in vesting
     address public immutable token;
 
@@ -26,7 +26,7 @@ contract TaleVestingWalletFactory is Ownable(msg.sender) {
      * @notice Constructor
      * @param _token The ERC20 token address used for vesting
      */
-    constructor(address _token) {
+    constructor(address _token) Ownable(msg.sender) {
         require(_token != address(0), "TaleFactory: token address is zero");
         token = _token;
     }
