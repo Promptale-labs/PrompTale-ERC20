@@ -22,9 +22,13 @@ contract TaleVestingWallet is Ownable {
     uint256 private _releasedAmount;
     uint256 private _releasedTimes;
 
+    // Emergency withdrawal state
+    bool private _beneficiaryConsent = false;
+
     event TokensReleased(address indexed beneficiary, uint256 amount);
     event VestingProgress(uint256 releasedTimes, uint256 totalReleased, uint256 releasable);
-    event Withdraw(address indexed to, uint256 amount);
+    event EmergencyWithdraw(address indexed to, uint256 amount, bool withConsent);
+    event BeneficiaryConsentUpdated(bool newConsent);
 
     /**
      * @notice Initializes the vesting wallet.
@@ -119,15 +123,38 @@ contract TaleVestingWallet is Ownable {
     }
 
     /**
-     * @notice Emergency withdrawal of all tokens to owner-specified address.
+     * @notice Allows the beneficiary to set their consent for emergency withdrawal
+     * @param consent Whether the beneficiary consents to full emergency withdrawal
+     */
+    function setEmergencyWithdrawConsent(bool consent) external {
+        require(msg.sender == beneficiary, "TaleVestingWallet: only beneficiary can set consent");
+        _beneficiaryConsent = consent;
+        emit BeneficiaryConsentUpdated(consent);
+    }
+
+    /**
+     * @notice Emergency withdrawal function that can be called by owner
+     * @dev If beneficiary has given consent, all tokens are withdrawn. Otherwise, only excess tokens are withdrawn
+     * @param to Address to receive the withdrawn tokens
      */
     function emergencyWithdraw(address to) external onlyOwner {
         require(to != address(0), "TaleVestingWallet: withdraw to zero address");
-
+        
         uint256 balance = token.balanceOf(address(this));
-        require(balance > 0, "TaleVestingWallet: no tokens to withdraw");
-
-        token.safeTransfer(to, balance);
-        emit Withdraw(to, balance);
+        uint256 remainingForBeneficiary = totalAmount - _releasedAmount;
+        
+        if (_beneficiaryConsent) {
+            require(balance > 0, "TaleVestingWallet: no tokens to withdraw");
+            token.safeTransfer(to, balance);
+            emit EmergencyWithdraw(to, balance, true);
+        } else {
+            require(balance > remainingForBeneficiary, "TaleVestingWallet: no excess tokens to withdraw");
+            uint256 withdrawableAmount = balance - remainingForBeneficiary;
+            require(withdrawableAmount > 0, "TaleVestingWallet: no tokens available for withdrawal");
+            
+            token.safeTransfer(to, withdrawableAmount);
+            emit EmergencyWithdraw(to, withdrawableAmount, false);
+        }
     }
+
 }
